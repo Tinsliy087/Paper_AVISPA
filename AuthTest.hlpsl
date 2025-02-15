@@ -185,7 +185,6 @@ goal
 
    secrecy_of sec_sk1, sec_sk2
 
-  
    authentication_on n1
    authentication_on n2
 
