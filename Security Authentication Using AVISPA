@@ -1,0 +1,199 @@
+role user(
+	U, D			: agent,
+	X,OT,G			: text,
+	P2              : message,
+	PKu,PKd			: public_key,
+	PK_U_B			:symmetric_key,
+	GR				: hash_func,
+	Snd, Rcv 		: channel(dy)
+
+)played_by U def=
+
+local
+	State			: nat,
+	N1,N2			: text,
+	D1,D2			: text,
+	K1,K2			: message,
+	SK				: message,
+	P1				: message,
+	Certu           : message
+
+const
+    sec_sk2,
+
+    n1, n2     : protocol_id
+
+init State := 0
+
+transition
+
+	0. State = 0 /\ Rcv(start)
+	   =|> State':= 1 
+	   /\ N1' := new()
+	   /\ D1' := new()
+	   /\ K1' := exp(G, D1')
+	   /\ P1' := exp(PKu, X)
+	   /\ Certu' := {P1'.P2.OT}_PK_U_B
+	   /\ Snd(U.N1'.K1'.P1'.P2.Certu')
+	   /\ witness(U,D,n1,N1')
+
+
+	1. State = 1 /\ Rcv(D.N2'.K2')
+	   =|> State':= 2 
+	   /\ SK' := GR(N1.N2'.exp(K2', D1))
+	   /\ Snd({U.{K1.N1.N2'}_inv(PKu)}_SK')
+	   /\ secret(SK',sec_sk2,{U,D})
+	
+	2. State = 2 /\ Rcv({D.{K2.N1.N2}_inv(PKd)}_SK)
+	   =|> State':= 3 
+	   /\ request(U,D, n2, N2)
+	
+
+end role
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+role device(
+	U, D, B				: agent,
+	X,OT,G				: text,
+	PKu, PKd			: public_key,
+	PK_D_B				: symmetric_key,
+	GR					: hash_func,
+	Snd_U, Snd_B, Rcv	: channel(dy)
+
+)played_by D def=
+
+local
+	State				: nat,
+	N1,N2				: text,
+	D1,D2				: text,
+	K1,K2				: message,
+	SK					: message,
+	P1,P2				: message,
+	Certu				: message,
+	PK_U_B				: symmetric_key
+
+const
+
+    sec_sk1,
+	
+    n1, n2     : protocol_id
+
+init State := 0 
+
+transition
+
+	0. State = 0 /\ Rcv(U.N1'.K1'.P1'.P2'.Certu') /\ P1' = exp(PKu, X)
+	   =|> State':= 1 
+	   /\ Snd_B(D.{U.P2'}_PK_D_B)
+
+	1. State = 1 /\ Rcv(B.{PK_U_B'}_PK_D_B) /\ Certu = {P1.P2.OT}_PK_U_B'
+	   =|> State':= 2 
+	   /\ N2' := new()
+	   /\ D2' := new()
+	   /\ K2' := exp(G, D2')
+	   /\ Snd_U(D.N2'.K2')
+	   /\ SK' := GR(N1.N2'.exp(K1, D2'))
+	   /\ secret(SK',sec_sk1,{U,D})
+       /\ witness(D,U,n2,N2')
+	
+
+	2. State = 2 /\ Rcv({U.{K1.N1.N2}_inv(PKu)}_SK)
+	   =|> State':= 3 
+	   /\ Snd_U({D.{K2.N1.N2}_inv(PKd)}_SK)
+	   /\ request(D,U, n1, N1)
+
+end role
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+role blockchain(
+	U, D, B				: agent,
+	PK_D_B,PK_U_B		: symmetric_key,
+	KeyRing				: (agent.message) set,
+	Snd_D, Rcv			: channel(dy)
+) played_by B def=
+
+local
+	State				: nat,
+	PKu					: public_key,
+	P2					: message
+
+init 
+	State := 0 
+
+transition 
+
+	0. State  = 0 /\ Rcv(D.{U.P2'}_PK_D_B) /\ in(U.P2',KeyRing)
+       =|> State':= 1 
+	   /\ Snd_D(B.{PK_U_B}_PK_D_B)
+
+end role
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+role session(
+	U, D, B				: agent,
+	X,OT,G          	: text,
+	P2                  : message,
+	PKu, PKd			: public_key,
+	PK_D_B,PK_U_B		: symmetric_key,
+	GR       			: hash_func,
+    KeyRing				: (agent.message) set)
+def=
+
+local
+ 	Snd,Snd_U,Snd_B,Snd_D,Rcv1,Rcv2,Rcv3 : channel (dy)
+
+  composition
+       user(U,D,X,OT,G,P2,PKu,PKd,PK_U_B,GR,Snd,Rcv1)
+	   /\ device(U,D,B,X,OT,G,PKu,PKd,PK_D_B,GR,Snd_U,Snd_B,Rcv2)
+       /\ blockchain(U,D,B,PK_D_B,PK_U_B,KeyRing,Snd_D,Rcv3)
+
+end role
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+role environment() def=
+
+
+  const
+    u,d,b			: agent,
+	x,ot,g			: text,
+	pkd,pku			: public_key,
+	pk_D_B,pk_U_B	: symmetric_key,
+    gr          	: hash_func,
+	p2          	: message
+
+  intruder_knowledge = {u,d,b,gr}
+
+  composition
+    session(u,d,b,x,ot,g,p2,pku,pkd,pk_D_B,pk_U_B,gr,{u.p2})
+	/\ session(u,d,b,x,ot,g,p2,pku,pkd,pk_D_B,pk_U_B,gr,{u.p2})
+    
+
+end role
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+goal
+
+
+   secrecy_of sec_sk1, sec_sk2
+
+  
+   authentication_on n1
+   authentication_on n2
+
+
+
+end goal
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+environment()
+
